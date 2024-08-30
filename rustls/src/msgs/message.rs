@@ -73,9 +73,14 @@ impl OpaqueMessage {
     /// `MessageError` allows callers to distinguish between valid prefixes (might
     /// become valid if we read more data) and invalid data.
     pub fn read(r: &mut Reader) -> Result<Self, MessageError> {
+        use log::warn;
+
+        let rest = &r.buf[r.offs..];
+        warn!("pre-parse opaque: buf={:?}", rest);
         let typ = ContentType::read(r).ok_or(MessageError::TooShortForHeader)?;
         let version = ProtocolVersion::read(r).ok_or(MessageError::TooShortForHeader)?;
         let len = u16::read(r).ok_or(MessageError::TooShortForHeader)?;
+        warn!("opaque message: typ={:?}, version={:?}, len={:?}", typ, version, len);
 
         // Reject undersize messages
         //  implemented per section 5.1 of RFC8446 (TLSv1.3)

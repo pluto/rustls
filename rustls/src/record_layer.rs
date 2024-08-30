@@ -123,6 +123,8 @@ impl RecordLayer {
         debug_assert!(self.decrypt_state == DirectionState::Active);
         let seq = self.read_seq;
         self.read_seq += 1;
+        use log::warn;
+        warn!("decrypt msg={:?}", encr);
         self.message_decrypter
             .decrypt(encr, seq)
     }

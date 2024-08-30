@@ -263,7 +263,6 @@
     unreachable_pub,
     unused_import_braces,
     unused_extern_crates,
-    unused_qualifications
 )]
 // Relax these clippy lints:
 // - ptr_arg: this triggers on references to type aliases that are Vec
@@ -300,9 +299,11 @@ mod log {
 
 #[allow(missing_docs)]
 #[macro_use]
-mod msgs;
+/// docs
+pub mod msgs;
 mod anchors;
-mod cipher;
+/// docs
+pub mod cipher;
 mod conn;
 mod error;
 mod hash_hs;
@@ -312,7 +313,8 @@ mod record_layer;
 mod stream;
 #[cfg(feature = "tls12")]
 mod tls12;
-mod tls13;
+/// a thing
+pub mod tls13;
 mod vecbuf;
 mod verify;
 #[cfg(test)]
@@ -323,7 +325,8 @@ mod check;
 mod bs_debug;
 mod builder;
 mod key;
-mod keylog;
+/// docs
+pub mod keylog;
 mod kx;
 mod suites;
 mod ticketer;

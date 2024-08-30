@@ -7,12 +7,12 @@ use ring::{aead, hkdf};
 /// Objects with this trait can decrypt TLS messages.
 pub trait MessageDecrypter: Send + Sync {
     /// Perform the decryption over the concerned TLS message.
-
     fn decrypt(&self, m: OpaqueMessage, seq: u64) -> Result<PlainMessage, Error>;
 }
 
 /// Objects with this trait can encrypt TLS messages.
-pub(crate) trait MessageEncrypter: Send + Sync {
+pub trait MessageEncrypter: Send + Sync {
+    /// docs
     fn encrypt(&self, m: BorrowedPlainMessage, seq: u64) -> Result<OpaqueMessage, Error>;
 }
 
@@ -30,17 +30,17 @@ impl dyn MessageDecrypter {
 
 /// A write or read IV.
 #[derive(Default)]
-pub(crate) struct Iv(pub(crate) [u8; ring::aead::NONCE_LEN]);
+pub(crate) struct Iv(pub(crate) [u8; aead::NONCE_LEN]);
 
 impl Iv {
     #[cfg(feature = "tls12")]
-    fn new(value: [u8; ring::aead::NONCE_LEN]) -> Self {
+    fn new(value: [u8; aead::NONCE_LEN]) -> Self {
         Self(value)
     }
 
     #[cfg(feature = "tls12")]
     pub(crate) fn copy(value: &[u8]) -> Self {
-        debug_assert_eq!(value.len(), ring::aead::NONCE_LEN);
+        debug_assert_eq!(value.len(), aead::NONCE_LEN);
         let mut iv = Self::new(Default::default());
         iv.0.copy_from_slice(value);
         iv
@@ -68,8 +68,8 @@ impl From<hkdf::Okm<'_, IvLen>> for Iv {
     }
 }
 
-pub(crate) fn make_nonce(iv: &Iv, seq: u64) -> ring::aead::Nonce {
-    let mut nonce = [0u8; ring::aead::NONCE_LEN];
+pub(crate) fn make_nonce(iv: &Iv, seq: u64) -> aead::Nonce {
+    let mut nonce = [0u8; aead::NONCE_LEN];
     codec::put_u64(seq, &mut nonce[4..]);
 
     nonce
@@ -86,6 +86,7 @@ pub(crate) fn make_nonce(iv: &Iv, seq: u64) -> ring::aead::Nonce {
 struct InvalidMessageEncrypter {}
 
 impl MessageEncrypter for InvalidMessageEncrypter {
+    /// docs
     fn encrypt(&self, _m: BorrowedPlainMessage, _seq: u64) -> Result<OpaqueMessage, Error> {
         Err(Error::General("encrypt not yet available".to_string()))
     }
@@ -95,6 +96,7 @@ impl MessageEncrypter for InvalidMessageEncrypter {
 struct InvalidMessageDecrypter {}
 
 impl MessageDecrypter for InvalidMessageDecrypter {
+    /// docs
     fn decrypt(&self, _m: OpaqueMessage, _seq: u64) -> Result<PlainMessage, Error> {
         Err(Error::DecryptError)
     }

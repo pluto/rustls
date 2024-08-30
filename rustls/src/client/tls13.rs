@@ -73,6 +73,7 @@ pub(super) fn handle_server_hello(
 ) -> hs::NextStateOrError {
     validate_server_hello(cx.common, server_hello)?;
 
+    warn!("ciphersuite={:?}", suite);
     let their_key_share = server_hello
         .get_key_share()
         .ok_or_else(|| {
@@ -90,6 +91,14 @@ pub(super) fn handle_server_hello(
     let shared = our_key_share
         .complete(&their_key_share.payload.0)
         .ok_or_else(|| Error::PeerMisbehavedError("key exchange failed".to_string()))?;
+
+    let mutual_secret = shared.shared_secret;
+    // use log::warn;
+    // use hex;
+    // warn!("mutual_secret={:?}", hex::encode(mutual_secret.clone()));
+    // warn!("OVERRIDING SECRET!!");
+    // let mutual_secret = hex::decode("c50678be4d7768e2295f46982a9be52fdc0fb2ada644a084442a7424ee7b902e").unwrap();
+    warn!("mutual_secret={:?}", hex::encode(mutual_secret.clone()));
 
     let key_schedule = if let (Some(selected_psk), Some(early_key_schedule)) =
         (server_hello.get_psk_index(), early_key_schedule)
@@ -125,14 +134,14 @@ pub(super) fn handle_server_hello(
                 "server selected unoffered psk".to_string(),
             ));
         }
-        early_key_schedule.into_handshake(&shared.shared_secret)
+        early_key_schedule.into_handshake(&mutual_secret)
     } else {
         debug!("Not resuming");
         // Discard the early data key schedule.
         cx.data.early_data.rejected();
         cx.common.early_traffic = false;
         resuming_session.take();
-        KeyScheduleNonSecret::new(suite.hkdf_algorithm).into_handshake(&shared.shared_secret)
+        KeyScheduleNonSecret::new(suite.hkdf_algorithm).into_handshake(&mutual_secret)
     };
 
     // Remember what KX group the server liked for next time.
@@ -388,6 +397,8 @@ impl State<ClientConnectionData> for ExpectEncryptedExtensions {
             HandshakeType::EncryptedExtensions,
             HandshakePayload::EncryptedExtensions
         )?;
+
+        warn!("====== ADD ENCRYPTED EXTENSIONS {:?} ======", &m);
         debug!("TLS1.3 encrypted extensions: {:?}", exts);
         self.transcript.add_message(&m);
 
@@ -536,6 +547,7 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
             HandshakeType::CertificateRequest,
             HandshakePayload::CertificateRequestTLS13
         )?;
+        warn!("====== ADD CERT REQUEST EXTENSIONS {:?} ======", certreq);
         self.transcript.add_message(&m);
         debug!("Got CertificateRequest {:?}", certreq);
 
@@ -624,6 +636,7 @@ impl State<ClientConnectionData> for ExpectCertificate {
             HandshakeType::Certificate,
             HandshakePayload::CertificateTLS13
         )?;
+        warn!("====== Expect certificate {:?} ======", &m);
         self.transcript.add_message(&m);
 
         // This is only non-empty for client auth.
@@ -731,6 +744,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify {
             .map_err(|err| hs::send_cert_error_alert(cx.common, err))?;
 
         cx.common.peer_certificates = Some(self.server_cert.cert_chain);
+        warn!("====== ADD CERT VERIFIED {:?} ======", &m);
         self.transcript.add_message(&m);
 
         Ok(Box::new(ExpectFinished {
@@ -777,6 +791,7 @@ fn emit_certificate_tls13(
             payload: HandshakePayload::CertificateTLS13(cert_payload),
         }),
     };
+    warn!("====== EMIT CLIENT CERT FOR CLIENT_AUTH {:?} ======", &m);
     transcript.add_message(&m);
     common.send_msg(m, true);
 }
@@ -808,6 +823,7 @@ fn emit_certverify_tls13(
         }),
     };
 
+    warn!("====== EMIT CLIENT CERT VERIFY FOR CLIENT_AUTH {:?} ======", &m);
     transcript.add_message(&m);
     common.send_msg(m, true);
     Ok(())
@@ -828,6 +844,7 @@ fn emit_finished_tls13(
         }),
     };
 
+    warn!("====== EMIT CLIENT FINISHED {:?} ======", &m);
     transcript.add_message(&m);
     common.send_msg(m, true);
 }
@@ -845,6 +862,7 @@ fn emit_end_of_early_data_tls13(transcript: &mut HandshakeHash, common: &mut Com
         }),
     };
 
+    warn!("====== EMIT END EARLY DATA {:?} ======", &m);
     transcript.add_message(&m);
     common.send_msg(m, true);
 }
@@ -879,7 +897,8 @@ impl State<ClientConnectionData> for ExpectFinished {
                 Error::DecryptError
             })
             .map(|_| verify::FinishedMessageVerified::assertion())?;
-
+        
+        warn!("====== EMIT EXPECT FINISHED {:?} ======", &m);
         st.transcript.add_message(&m);
 
         let hash_after_handshake = st.transcript.get_current_hash();
@@ -903,7 +922,8 @@ impl State<ClientConnectionData> for ExpectFinished {
             emit_certificate_tls13(&mut st.transcript, client_auth, cx.common);
             emit_certverify_tls13(&mut st.transcript, client_auth, cx.common)?;
         }
-
+        use log::error;
+        error!("=======  APP TRAFFIC KEY HASH={:?}", hash_after_handshake.as_ref());
         let (key_schedule_finished, client_key, server_key) = st
             .key_schedule
             .into_traffic_with_client_finished_pending(
@@ -912,6 +932,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 &st.randoms.client,
             );
         let handshake_hash = st.transcript.get_current_hash();
+        
         let (key_schedule_traffic, verify_data, _) =
             key_schedule_finished.sign_client_finish(&handshake_hash);
         emit_finished_tls13(&mut st.transcript, verify_data, cx.common);

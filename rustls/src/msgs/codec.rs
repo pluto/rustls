@@ -3,8 +3,8 @@ use std::fmt::Debug;
 
 /// Read from a byte slice.
 pub struct Reader<'a> {
-    buf: &'a [u8],
-    offs: usize,
+    pub buf: &'a [u8],
+    pub offs: usize,
 }
 
 impl<'a> Reader<'a> {

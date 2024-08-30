@@ -11,7 +11,8 @@ use ring::{aead, hkdf};
 
 use std::fmt;
 
-pub(crate) mod key_schedule;
+/// docs
+pub mod key_schedule;
 use key_schedule::{derive_traffic_iv, derive_traffic_key};
 
 /// The TLS1.3 ciphersuite TLS_CHACHA20_POLY1305_SHA256
@@ -22,9 +23,9 @@ pub(crate) static TLS13_CHACHA20_POLY1305_SHA256_INTERNAL: &Tls13CipherSuite = &
     common: CipherSuiteCommon {
         suite: CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
         bulk: BulkAlgorithm::Chacha20Poly1305,
-        aead_algorithm: &ring::aead::CHACHA20_POLY1305,
+        aead_algorithm: &aead::CHACHA20_POLY1305,
     },
-    hkdf_algorithm: ring::hkdf::HKDF_SHA256,
+    hkdf_algorithm: hkdf::HKDF_SHA256,
     #[cfg(feature = "quic")]
     confidentiality_limit: u64::MAX,
     #[cfg(feature = "quic")]
@@ -37,9 +38,9 @@ pub static TLS13_AES_256_GCM_SHA384: SupportedCipherSuite =
         common: CipherSuiteCommon {
             suite: CipherSuite::TLS13_AES_256_GCM_SHA384,
             bulk: BulkAlgorithm::Aes256Gcm,
-            aead_algorithm: &ring::aead::AES_256_GCM,
+            aead_algorithm: &aead::AES_256_GCM,
         },
-        hkdf_algorithm: ring::hkdf::HKDF_SHA384,
+        hkdf_algorithm: hkdf::HKDF_SHA384,
         #[cfg(feature = "quic")]
         confidentiality_limit: 1 << 23,
         #[cfg(feature = "quic")]
@@ -54,9 +55,9 @@ pub(crate) static TLS13_AES_128_GCM_SHA256_INTERNAL: &Tls13CipherSuite = &Tls13C
     common: CipherSuiteCommon {
         suite: CipherSuite::TLS13_AES_128_GCM_SHA256,
         bulk: BulkAlgorithm::Aes128Gcm,
-        aead_algorithm: &ring::aead::AES_128_GCM,
+        aead_algorithm: &aead::AES_128_GCM,
     },
-    hkdf_algorithm: ring::hkdf::HKDF_SHA256,
+    hkdf_algorithm: hkdf::HKDF_SHA256,
     #[cfg(feature = "quic")]
     confidentiality_limit: 1 << 23,
     #[cfg(feature = "quic")]
@@ -67,7 +68,8 @@ pub(crate) static TLS13_AES_128_GCM_SHA256_INTERNAL: &Tls13CipherSuite = &Tls13C
 pub struct Tls13CipherSuite {
     /// Common cipher suite fields.
     pub common: CipherSuiteCommon,
-    pub(crate) hkdf_algorithm: ring::hkdf::Algorithm,
+    /// docs
+    pub hkdf_algorithm: hkdf::Algorithm,
     #[cfg(feature = "quic")]
     pub(crate) confidentiality_limit: u64,
     #[cfg(feature = "quic")]
@@ -75,9 +77,13 @@ pub struct Tls13CipherSuite {
 }
 
 impl Tls13CipherSuite {
-    pub(crate) fn derive_encrypter(&self, secret: &hkdf::Prk) -> Box<dyn MessageEncrypter> {
+    /// notes
+    pub fn derive_encrypter(&self, secret: &hkdf::Prk) -> Box<dyn MessageEncrypter> {
+        use log::debug;
+        debug!("derive_encrypter():");
         let key = derive_traffic_key(secret, self.common.aead_algorithm);
         let iv = derive_traffic_iv(secret);
+        debug!("end derive_encrypter():");
 
         Box::new(Tls13MessageEncrypter {
             enc_key: aead::LessSafeKey::new(key),
@@ -88,8 +94,11 @@ impl Tls13CipherSuite {
     /// Derive a `MessageDecrypter` object from the concerned TLS 1.3
     /// cipher suite.
     pub fn derive_decrypter(&self, secret: &hkdf::Prk) -> Box<dyn MessageDecrypter> {
+        use log::debug;
+        debug!("derive_decrypter(): key_len={:?}", self.common.aead_algorithm.key_len());
         let key = derive_traffic_key(secret, self.common.aead_algorithm);
         let iv = derive_traffic_iv(secret);
+        debug!("end derive_decrypter():");
 
         Box::new(Tls13MessageDecrypter {
             dec_key: aead::LessSafeKey::new(key),
@@ -151,8 +160,8 @@ fn unpad_tls13(v: &mut Vec<u8>) -> ContentType {
     }
 }
 
-fn make_tls13_aad(len: usize) -> ring::aead::Aad<[u8; TLS13_AAD_SIZE]> {
-    ring::aead::Aad::from([
+fn make_tls13_aad(len: usize) -> aead::Aad<[u8; TLS13_AAD_SIZE]> {
+    aead::Aad::from([
         0x17, // ContentType::ApplicationData
         0x3,  // ProtocolVersion (major)
         0x3,  // ProtocolVersion (minor)
@@ -167,17 +176,24 @@ const TLS13_AAD_SIZE: usize = 1 + 2 + 2;
 impl MessageEncrypter for Tls13MessageEncrypter {
     fn encrypt(&self, msg: BorrowedPlainMessage, seq: u64) -> Result<OpaqueMessage, Error> {
         let total_len = msg.payload.len() + 1 + self.enc_key.algorithm().tag_len();
+        use log::warn;
+        warn!("ENC: len={:?}, alg_len={:?}", total_len, self.enc_key.algorithm().tag_len());
+        warn!("ENC: msg_typ={:?}, msg_version={:?}", msg.typ, msg.version);
+        warn!("ENC: msg={:?}, msg_len={:?}, seq={:?}", hex::encode(msg.payload), msg.payload.len(), seq);
+        warn!("ENC: iv={:?}, dec_key={:?}", hex::encode(self.iv.0), self.enc_key);
         let mut payload = Vec::with_capacity(total_len);
         payload.extend_from_slice(msg.payload);
         msg.typ.encode(&mut payload);
 
         let nonce = make_nonce(&self.iv, seq);
         let aad = make_tls13_aad(total_len);
+        warn!("ENC: nonce={:?}, aad={:?}, algo={:?}", hex::encode(nonce.as_ref()), hex::encode(aad.as_ref()), self.enc_key.algorithm().tag_len());
 
         self.enc_key
             .seal_in_place_append_tag(nonce, aad, &mut payload)
             .map_err(|_| Error::General("encrypt failed".to_string()))?;
 
+        warn!("ENC: cipher_text={:?}, cipher_len={:?}", hex::encode(payload.clone()), payload.len());
         Ok(OpaqueMessage {
             typ: ContentType::ApplicationData,
             version: ProtocolVersion::TLSv1_2,
@@ -188,6 +204,11 @@ impl MessageEncrypter for Tls13MessageEncrypter {
 
 impl MessageDecrypter for Tls13MessageDecrypter {
     fn decrypt(&self, mut msg: OpaqueMessage, seq: u64) -> Result<PlainMessage, Error> {
+        use log::warn;
+        use hex;
+        warn!("DEC: msg_typ={:?}, msg_version={:?}", msg.typ, msg.version);
+        warn!("DEC: msg={:?}, msg_len={:?}, seq={:?}", hex::encode(msg.payload.0.clone()), msg.payload.0.len(), seq);
+        warn!("DEC: iv={:?}, dec_key={:?}", hex::encode(self.iv.0), self.dec_key);
         let payload = &mut msg.payload.0;
         if payload.len() < self.dec_key.algorithm().tag_len() {
             return Err(Error::DecryptError);
@@ -195,6 +216,7 @@ impl MessageDecrypter for Tls13MessageDecrypter {
 
         let nonce = make_nonce(&self.iv, seq);
         let aad = make_tls13_aad(payload.len());
+        warn!("DEC: nonce={:?}, aad={:?}, algo={:?}", hex::encode(nonce.as_ref()), hex::encode(aad.as_ref()), self.dec_key.algorithm().tag_len());
         let plain_len = self
             .dec_key
             .open_in_place(nonce, aad, payload)
@@ -218,6 +240,7 @@ impl MessageDecrypter for Tls13MessageDecrypter {
         }
 
         msg.version = ProtocolVersion::TLSv1_3;
+        warn!("DEC: plain_text={:?}, plain_len={:?}", hex::encode(msg.clone().into_plain_message().payload.0), plain_len);
         Ok(msg.into_plain_message())
     }
 }
